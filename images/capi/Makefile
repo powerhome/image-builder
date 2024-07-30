@@ -322,7 +322,7 @@ FLATCAR_VERSIONS		:=	flatcar
 PHOTON_VERSIONS			:=	photon-3 photon-4 photon-5
 RHEL_VERSIONS			:=	rhel-7 rhel-8 rhel-9
 ROCKYLINUX_VERSIONS		:=  rockylinux-8 rockylinux-9
-UBUNTU_VERSIONS			:=	ubuntu-2004 ubuntu-2004-efi ubuntu-2204 ubuntu-2204-efi
+UBUNTU_VERSIONS			:=	ubuntu-2004 ubuntu-2004-efi ubuntu-2204 ubuntu-2204-efi ubuntu-2404-efi
 WINDOWS_VERSIONS		:=	windows-2019 windows-2019-efi windows-2022 windows-2022-efi
 
 # Set Flatcar Container Linux channel and version if not supplied
