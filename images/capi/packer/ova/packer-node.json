@@ -2,6 +2,8 @@
   "builders": [
     {
       "communicator": "ssh",
+      "cd_files": "{{user `cd_content_location`}}",
+      "cd_label": "{{user `cd_label`}}",
       "disable_vnc": "True",
       "format": "{{user `format`}}",
       "headless": "{{user `headless`}}",
@@ -39,6 +41,8 @@
         "{{user `boot_command_suffix`}}"
       ],
       "boot_wait": "{{user `boot_wait`}}",
+      "cd_files": "{{user `cd_content_location`}}",
+      "cd_label": "{{user `cd_label`}}",
       "cdrom_adapter_type": "{{user `cdrom_adapter_type`}}",
       "communicator": "ssh",
       "cores": "{{user `cpu_cores`}}",
@@ -90,6 +94,8 @@
         "{{user `boot_command_suffix`}}"
       ],
       "boot_wait": "{{user `boot_wait`}}",
+      "cd_files": "{{user `cd_content_location`}}",
+      "cd_label": "{{user `cd_label`}}",
       "cdrom_adapter_type": "{{user `cdrom_adapter_type`}}",
       "communicator": "ssh",
       "cores": "{{user `cpu_cores`}}",
@@ -140,6 +146,8 @@
         "{{user `boot_command_suffix`}}"
       ],
       "boot_wait": "{{user `boot_wait`}}",
+      "cd_files": "{{user `cd_content_location`}}",
+      "cd_label": "{{user `cd_label`}}",
       "cdrom_type": "{{user `cdrom_type`}}",
       "cluster": "{{user `cluster`}}",
       "communicator": "ssh",
@@ -259,6 +267,8 @@
     {
       "CPUs": "{{user `cpu`}}",
       "RAM": "{{user `memory`}}",
+      "cd_files": "{{user `cd_content_location`}}",
+      "cd_label": "{{user `cd_label`}}",
       "cluster": "{{user `cluster`}}",
       "communicator": "ssh",
       "convert_to_template": "{{user `convert_to_template`}}",
