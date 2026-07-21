@@ -15,3 +15,5 @@
 extra_repos: ""
 pip_conf_file: ""
 remove_extra_repos: false
+flatcar_disable_autologin: false
+sysprep_require_grub_file: true

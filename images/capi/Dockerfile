@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.1-experimental
+# syntax=docker/dockerfile:1.4
 
 # Copyright 2020 The Kubernetes Authors.
 #
@@ -16,6 +16,11 @@
 
 ARG BASE_IMAGE=docker.io/library/ubuntu:24.04
 FROM $BASE_IMAGE
+
+ARG TAG=dev
+LABEL org.opencontainers.image.source=https://github.com/kubernetes-sigs/image-builder
+LABEL org.opencontainers.image.url=https://image-builder.sigs.k8s.io
+LABEL org.opencontainers.image.version=$TAG
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
 	apt-transport-https \
@@ -52,9 +57,9 @@ COPY --chown=imagebuilder:imagebuilder Makefile Makefile
 COPY --chown=imagebuilder:imagebuilder azure_targets.sh azure_targets.sh
 
 ENV PATH="/home/imagebuilder/.local/bin:${PATH}"
-ENV PACKER_ARGS ''
-ENV PACKER_VAR_FILES ''
-ENV IB_VERSION "${PASSED_IB_VERSION}"
+ENV PACKER_ARGS=''
+ENV PACKER_VAR_FILES=''
+ENV IB_VERSION="${PASSED_IB_VERSION}"
 
 RUN make deps
 

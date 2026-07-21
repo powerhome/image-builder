@@ -33,6 +33,7 @@
   ansible.builtin.file:
     path: "{{ item.dir }}"
     state: directory
+    mode: "0755"
   loop:
     - { dir: /etc/conf.d }
     - { dir: /etc/networkd-dispatcher/carrier.d }
@@ -76,4 +77,10 @@
     dest: /usr/libexec/chrony-helper
     owner: root
     group: root
+    mode: a+x
+
+- name: Create configuration for rotate /var/log/messages
+  ansible.builtin.template:
+    src: etc/logrotate.d/messages.j2
+    dest: /etc/logrotate.d/messages
     mode: a+x

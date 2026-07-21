@@ -10,15 +10,15 @@ to test if the images have all requisite components to work with cluster API.
 ### Support Matrix 
 *For stock server-specs shipped with repo
 
-| OS                      | Builder              |
-|-------------------------|----------------------|
-| Amazon Linux            | aws                  |
-| Azure Linux             | azure                |
-| CentOS                  | aws, ova             |
-| Flatcar Container Linux | aws, azure, ova      |
-| PhotonOS                | ova                  |
-| Ubuntu                  | aws, azure, gcp, ova |
-| Windows                 | aws, azure, ova      |
+| OS                      | Builder                       |
+|-------------------------|-------------------------------|
+| Amazon Linux            | aws                           |
+| Azure Linux             | azure                         |
+| CentOS                  | aws, nutanix, ova             |
+| Flatcar Container Linux | aws, azure, nutanix, ova      |
+| PhotonOS                | ova                           |
+| Ubuntu                  | aws, azure, gcp, nutanix, ova |
+| Windows                 | aws, azure, nutanix, ova      |
 
 
 ### Prerequisites for Running Goss
@@ -38,7 +38,7 @@ Supported arguments are passed through file: `packer/config/goss-args.json`
   "goss_url": "",
   "goss_format_options": "pretty",
   "goss_vars_file": "packer/goss/goss-vars.yaml",
-  "goss_version": "0.3.16"
+  "goss_version": "0.3.23"
 }
 ```
 ##### Supported values for some of the arguments can be found [here](https://github.com/goss-org/goss).
