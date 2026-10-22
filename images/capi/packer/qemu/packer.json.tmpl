@@ -12,7 +12,7 @@
         "{{user `cd_files`}}"
       ],
       "cd_label": "cidata",
-      "cpu_model": "host",
+      "cpu_model": "{{user `cpu_model`}}",
       "cpus": "{{user `cpus`}}",
       "disk_compression": "{{ user `disk_compression`}}",
       "disk_discard": "{{user `disk_discard`}}",
@@ -25,6 +25,7 @@
       "http_directory": "{{user `http_directory`}}",
       "iso_checksum": "{{user `iso_checksum_type`}}:{{user `iso_checksum`}}",
       "iso_url": "{{user `iso_url`}}",
+      "machine_type": "{{user `machine_type`}}",
       "memory": "{{user `memory`}}",
       "net_device": "virtio-net",
       "output_directory": "{{user `output_directory`}}",
@@ -79,6 +80,8 @@
     {
       "ansible_env_vars": [
         "ANSIBLE_SSH_ARGS='{{user `existing_ansible_ssh_args`}} {{user `ansible_common_ssh_args`}}'",
+        "{{if user `ansible_collections_path`}}ANSIBLE_COLLECTIONS_PATH={{user `ansible_collections_path`}}{{end}}",
+        "{{if user `ansible_collections_path`}}ANSIBLE_COLLECTIONS_PATHS={{user `ansible_collections_path`}}{{end}}",
         "KUBEVIRT={{user `kubevirt`}}"
       ],
       "extra_arguments": [
@@ -91,6 +94,7 @@
         "--scp-extra-args",
         "{{user `ansible_scp_extra_args`}}"
       ],
+      "max_retries": 5,
       "playbook_file": "./ansible/firstboot.yml",
       "type": "ansible",
       "user": "builder"
@@ -104,9 +108,21 @@
       "type": "shell"
     },
     {
-      "pause_before": "30s",
+      "inline": [
+        "echo \"Post-reboot SSH ready at $(date -Is)\"",
+        "echo 'Waiting for rebooted systemd state to settle...'",
+        "if ! timeout 180s sudo systemctl is-system-running --wait; then sudo systemctl --failed --no-pager || true; fi",
+        "uname -a"
+      ],
+      "inline_shebang": "/bin/bash -e",
+      "pause_before": "20s",
+      "type": "shell"
+    },
+    {
       "ansible_env_vars": [
         "ANSIBLE_SSH_ARGS='{{user `existing_ansible_ssh_args`}} {{user `ansible_common_ssh_args`}}'",
+        "{{if user `ansible_collections_path`}}ANSIBLE_COLLECTIONS_PATH={{user `ansible_collections_path`}}{{end}}",
+        "{{if user `ansible_collections_path`}}ANSIBLE_COLLECTIONS_PATHS={{user `ansible_collections_path`}}{{end}}",
         "KUBEVIRT={{user `kubevirt`}}"
       ],
       "extra_arguments": [
@@ -119,6 +135,7 @@
         "--scp-extra-args",
         "{{user `ansible_scp_extra_args`}}"
       ],
+      "max_retries": 5,
       "playbook_file": "./ansible/node.yml",
       "type": "ansible",
       "user": "builder"
@@ -141,6 +158,8 @@
         "OS": "{{user `distro_name` | lower}}",
         "OS_VERSION": "{{user `distribution_version` | lower}}",
         "PROVIDER": "qemu",
+        "containerd_enable_limit_no_file": "{{user `containerd_enable_limit_no_file`}}",
+        "containerd_image_pull_progress_timeout": "{{user `containerd_image_pull_progress_timeout`}}",
         "containerd_version": "{{user `containerd_version`}}",
         "kubernetes_cni_deb_version": "{{ user `kubernetes_cni_deb_version` }}",
         "kubernetes_cni_rpm_version": "{{ split (user `kubernetes_cni_rpm_version`) \"-\" 0 }}",
@@ -174,6 +193,7 @@
   "variables": {
     "accelerator": "kvm",
     "ansible_common_vars": "",
+    "ansible_collections_path": "",
     "ansible_extra_vars": "ansible_python_interpreter=/usr/bin/python3",
     "ansible_user_vars": "",
     "artifact_name": "{{user `build_name`}}-kube-{{user `kubernetes_semver`}}",
@@ -182,6 +202,9 @@
     "build_timestamp": "{{timestamp}}",
     "cd_files": "linux/base/*.nothing",
     "containerd_version": null,
+    "containerd_image_pull_progress_timeout": null,
+    "cpu_model": "host",
+    "containerd_enable_limit_no_file": "false",
     "containerd_service_url": "https://raw.githubusercontent.com/containerd/containerd/refs/tags/v{{user `containerd_version`}}/containerd.service",
     "runc_version": null,
     "cpus": "1",
@@ -191,6 +214,7 @@
     "disk_image": "false",
     "disk_size": "20480",
     "existing_ansible_ssh_args": "{{env `ANSIBLE_SSH_ARGS`}}",
+    "ib_version": "{{env `IB_VERSION`}}",
     "firmware": "",
     "format": "qcow2",
     "headless": "true",
@@ -213,6 +237,7 @@
     "kubernetes_series": null,
     "kubernetes_source_type": null,
     "machine_id_mode": "444",
+    "machine_type": "pc",
     "memory": "2048",
     "oem_id": "",
     "output_directory": "./output/{{user `build_name`}}-kube-{{user `kubernetes_semver`}}",
