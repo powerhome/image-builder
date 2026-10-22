@@ -19,7 +19,7 @@ From the `image-builder` directory, run:
 make build-maas-ubuntu-xxxx-efi
 ```
 
-The image will be located in `images/capi/output/BUILD_NAME+kube-KUBERNETES_VERSION`. Replace `xxxx` with `2204` or `2404`, depending on the Ubuntu version.
+The image will be located in `images/capi/output/BUILD_NAME+kube-KUBERNETES_VERSION`. Replace `xxxx` with `2204`, `2404` or `2604`, depending on the Ubuntu version.
 
 To build a Ubuntu 22.04-based CAPI image:
 
@@ -73,4 +73,45 @@ Use the **.tar.gz** file for the upload:
 maas admin boot-resources create name=custom/your-image architecture=amd64/generic title=your-image subarches=generic base_image=ubuntu/jammy content@=./ubuntu-2204-efi-kube-v1.30.5.tar.gz
 ```
 
-**Note:** Set `base_image=ubuntu/jammy` for Ubuntu 22.04 or `ubuntu/noble` for 24.04.
+**Note:** Set `base_image=ubuntu/jammy` for Ubuntu 22.04, `ubuntu/noble` for 24.04, or `ubuntu/resolute` for 26.04.
+
+## Custom Curtin Scripts
+If you need to override the default MaaS curtin scripts, create a custom role containing the curtin hooks. The files must be copied to the `/curtin` directory
+
+For more information on how to create and use custom roles, refer to the official documentation: https://image-builder.sigs.k8s.io/capi/capi#customization
+
+## iSCSI configuration note:
+
+If you need unique names for the iSCSI InitiatorName, add a KubeadmConfigTemplate and include the following command under `spec.template.spec.preKubeadmCommands`
+
+```bash
+echo "InitiatorName=$(iscsi-iname -p iqn.2004-10.com.ubuntu:$(cat /etc/hostname))" > /etc/iscsi/initiatorname.iscsi
+```
+
+### Example
+
+```yaml
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: t-cluster-md-0
+  namespace: default
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            event-qps: "0"
+            feature-gates: RotateKubeletServerCertificate=true
+            read-only-port: "0"
+          name: '{{ v1.local_hostname }}'
+      preKubeadmCommands:
+      - echo "InitiatorName=$(iscsi-iname -p iqn.2004-10.com.ubuntu:$(cat /etc/hostname))" > /etc/iscsi/initiatorname.iscsi
+      - systemctl restart open-iscsi
+      - while [ ! -S /var/run/containerd/containerd.sock ]; do echo 'Waiting for containerd...';
+        sleep 1; done
+      - sed -ri '/\sswap\s/s/^#?/#/' /etc/fstab
+      - swapoff -a
+      useExperimentalRetryJoin: true
+```

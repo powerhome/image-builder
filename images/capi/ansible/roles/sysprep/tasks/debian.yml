@@ -17,22 +17,59 @@
     last_log_mode: "0664"
     machine_id_mode: "0644"
 
-- name: Pin all installed packages with apt-mark
-  ansible.builtin.shell: |
-    set -o pipefail
-    dpkg-query -f '${binary:Package}\n' -W | xargs apt-mark hold
+- name: Get installed packages
+  ansible.builtin.package_facts:
 
-  args:
-    executable: /bin/bash
+- name: Disable apt-daily timers
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
 
-- name: Unpin grub packages with apt-mark for MaaS
-  ansible.builtin.shell: |
-    set -o pipefail
-    dpkg-query -f '${binary:Package}\n' -W | grep grub | xargs apt-mark unhold
+- name: Stop apt-daily services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+  loop:
+    - apt-daily.service
+    - apt-daily-upgrade.service
 
-  args:
-    executable: /bin/bash
-  when: provider is defined and provider is search('maas')
+- name: Disable unattended upgrades if installed
+  ansible.builtin.systemd:
+    name: unattended-upgrades
+    state: stopped
+    enabled: false
+  when: "'unattended-upgrades' in ansible_facts.packages"
+
+# The apt-daily/unattended-upgrades services may still be running from before
+# they were disabled above. Retry package selection changes until the dpkg frontend
+# lock is released to avoid a flaky race with concurrent apt activity.
+- name: Pin all installed packages
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: "{{ ansible_facts.packages.keys() }}"
+  register: sysprep_dpkg_selections_hold
+  until: sysprep_dpkg_selections_hold is not failed
+  retries: 30
+  delay: 10
+  when: sysprep_hold_installed_packages | default(true) | bool
+
+- name: Unpin grub packages for MaaS
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: install
+  loop: "{{ ansible_facts.packages.keys() | select('search', 'grub') | list }}"
+  register: sysprep_dpkg_selections_unhold_grub
+  until: sysprep_dpkg_selections_unhold_grub is not failed
+  retries: 30
+  delay: 10
+  when:
+    - sysprep_hold_installed_packages | default(true) | bool
+    - provider is defined and provider is search('maas')
 
 - name: Remove extra repos
   ansible.builtin.file:
@@ -51,12 +88,12 @@
       - /etc/apt/sources.list.d
     patterns: "*.list.disabled"
   register: repo_files
-  when: disable_public_repos|default(false)|bool and reenable_public_repos|default(true)|bool
+  when: (disable_public_repos | default(false, true) | bool) and (reenable_public_repos | default(true, true) | bool)
 
 - name: Enable repos
   ansible.builtin.command: mv {{ item.path }} {{ item.path | regex_replace('.disabled') }}
   loop: "{{ repo_files.files }}"
-  when: disable_public_repos|default(false)|bool and reenable_public_repos|default(true)|bool
+  when: (disable_public_repos | default(false, true) | bool) and (reenable_public_repos | default(true, true) | bool)
 
 - name: Remove templated apt.conf.d/90proxy used for http(s)_proxy support
   ansible.builtin.file:
@@ -71,13 +108,14 @@
   ansible.builtin.service:
     name: rsyslog
     state: stopped
-  when: "'rsyslog' in services"
+  when: "'rsyslog' in ansible_facts.services"
 
 - name: Remove apt package caches
   ansible.builtin.apt:
     autoclean: true
     autoremove: true
     force_apt_get: true
+    lock_timeout: 300
 
 - name: Remove apt package lists
   ansible.builtin.file:
@@ -90,25 +128,6 @@
     - { path: /var/lib/apt/lists, state: absent, mode: "0755" }
     - { path: /var/lib/apt/lists, state: directory, mode: "0755" }
 
-- name: Disable apt-daily services
-  ansible.builtin.systemd:
-    name: "{{ item }}"
-    state: stopped
-    enabled: false
-  loop:
-    - apt-daily.timer
-    - apt-daily-upgrade.timer
-
-- name: Get installed packages
-  ansible.builtin.package_facts:
-
-- name: Disable unattended upgrades if installed
-  ansible.builtin.systemd:
-    name: unattended-upgrades
-    state: stopped
-    enabled: false
-  when: "'unattended-upgrades' in ansible_facts.packages"
-
 - name: Reset network interface IDs
   ansible.builtin.file:
     state: absent
@@ -119,9 +138,9 @@
     path: /usr/sbin/update-grub
   register: _stat_update_grub
 
-- name: Configure grub for non graphical consoles
-  ansible.builtin.copy:
-    src: etc/default/grub.d/50-cloudimg-settings.cfg
+- name: Configure grub for non graphical consoles and add user extra kernel boot params
+  ansible.builtin.template:
+    src: templates/etc/default/grub.d/50-cloudimg-settings.cfg
     dest: /etc/default/grub.d/50-cloudimg-settings.cfg
     group: root
     owner: root
@@ -132,32 +151,35 @@
     - _stat_update_grub.stat.exists
     - sysprep_require_grub_file|default(true)|bool
 
-- name: Removing subiquity disable cloud-init networking config
+- name: Removing subiquity disable cloud-init networking configs
   ansible.builtin.file:
-    path: /etc/cloud/cloud.cfg.d/subiquity-disable-cloudinit-networking.cfg
+    path: "{{ item }}"
     state: absent
-  when: ansible_distribution_version is version('22.04', '>=')
+  loop:
+    - /etc/cloud/cloud.cfg.d/subiquity-disable-cloudinit-networking.cfg
+    - /etc/cloud/cloud.cfg.d/00-subiquity-disable-cloudinit-networking.cfg
+  when: ansible_facts['distribution_version'] is version('22.04', '>=')
 
 - name: Removing 99-installer.cfg which sets the cloud-init datasource to None
   ansible.builtin.file:
     path: /etc/cloud/cloud.cfg.d/99-installer.cfg
     state: absent
-  when: ansible_distribution_version is version('22.04', '>=')
+  when: ansible_facts['distribution_version'] is version('22.04', '>=')
 
 - name: Removing subiquity curtin preserve sources config
   ansible.builtin.file:
     path: /etc/cloud/cloud.cfg.d/curtin-preserve-sources.cfg
     state: absent
-  when: ansible_distribution_version is version('22.04', '>=')
+  when: ansible_facts['distribution_version'] is version('22.04', '>=')
 
 - name: Removing cloud-init ds identify config
   ansible.builtin.file:
     path: /etc/cloud/ds-identify.cfg
     state: absent
-  when: ansible_distribution_version is version('22.04', '>=')
+  when: ansible_facts['distribution_version'] is version('22.04', '>=')
 
 - name: Removing 90-installer-network.cfg installer network configuration
   ansible.builtin.file:
     path: /etc/cloud/cloud.cfg.d/90-installer-network.cfg
     state: absent
-  when: ansible_distribution_version is version('22.04', '>=')
+  when: ansible_facts['distribution_version'] is version('22.04', '>=')

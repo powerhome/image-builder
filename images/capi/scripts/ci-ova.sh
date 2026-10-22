@@ -29,19 +29,15 @@ export ARTIFACTS="${ARTIFACTS:-${PWD}/_artifacts}"
 # The following are currently having issues running in the
 # test environment so are specifically excluded for now
 # - Photon-4
-# - Photon-5
-# - RockyLinux-8
 TARGETS=( $(make build-node-ova-vsphere-all --recon -d | grep "Must remake" | \
   grep -v build-node-ova-vsphere-all | \
   grep -E -v 'rhel|windows|efi' | \
   grep -v build-node-ova-vsphere-photon-4 | \
-  grep -v build-node-ova-vsphere-photon-5 | \
-  grep -v build-node-ova-vsphere-rockylinux-8 | \
   grep -E -o 'build-node-ova-vsphere-[a-zA-Z0-9\-]+' ) )
 
 export BOSKOS_RESOURCE_OWNER=image-builder
-if [[ "${JOB_NAME}" != "" ]]; then
-  export BOSKOS_RESOURCE_OWNER="${JOB_NAME}/${BUILD_ID}"
+if [[ "${JOB_NAME:-}" != "" ]]; then
+  export BOSKOS_RESOURCE_OWNER="${JOB_NAME}/${BUILD_ID:-}"
 fi
 export BOSKOS_RESOURCE_TYPE="gcve-vsphere-project"
 
@@ -49,8 +45,10 @@ on_exit() {
   # Stop boskos heartbeat
   [[ -z ${HEART_BEAT_PID:-} ]] || kill -9 "${HEART_BEAT_PID}"
 
-  # If Boskos is being used then release the vsphere project.
-  [ -z "${BOSKOS_HOST:-}" ] || docker run -e VSPHERE_USERNAME -e VSPHERE_PASSWORD gcr.io/k8s-staging-capi-vsphere/extra/boskosctl:latest release --boskos-host="${BOSKOS_HOST}" --resource-owner="${BOSKOS_RESOURCE_OWNER}" --resource-name="${BOSKOS_RESOURCE_NAME}" --vsphere-server="${VSPHERE_SERVER}" --vsphere-tls-thumbprint="${VSPHERE_TLS_THUMBPRINT}" --vsphere-folder="${BOSKOS_RESOURCE_FOLDER}" --vsphere-resource-pool="${BOSKOS_RESOURCE_POOL}"
+  # If Boskos allocated a resource then release the vsphere project.
+  if [[ -n "${BOSKOS_HOST:-}" && -n "${BOSKOS_RESOURCE_NAME:-}" ]]; then
+    docker run -e VSPHERE_USERNAME -e VSPHERE_PASSWORD gcr.io/k8s-staging-capi-vsphere/extra/boskosctl:latest release --boskos-host="${BOSKOS_HOST}" --resource-owner="${BOSKOS_RESOURCE_OWNER}" --resource-name="${BOSKOS_RESOURCE_NAME}" --vsphere-server="${VSPHERE_SERVER:-}" --vsphere-tls-thumbprint="${VSPHERE_TLS_THUMBPRINT:-}" --vsphere-folder="${BOSKOS_RESOURCE_FOLDER:-}" --vsphere-resource-pool="${BOSKOS_RESOURCE_POOL:-}"
+  fi
 }
 
 trap on_exit EXIT
@@ -109,14 +107,22 @@ if [ -n "${BOSKOS_HOST:-}" ]; then
   # Check out the account from Boskos and store the produced environment
   # variables in a temporary file.
   account_env_var_file="$(mktemp)"
+  set +o errexit
   docker run gcr.io/k8s-staging-capi-vsphere/extra/boskosctl:latest acquire --boskos-host="${BOSKOS_HOST}" --resource-owner="${BOSKOS_RESOURCE_OWNER}" --resource-type="${BOSKOS_RESOURCE_TYPE}" 1>"${account_env_var_file}"
   checkout_account_status="${?}"
+  set -o errexit
+
+  if [ ! "${checkout_account_status}" = "0" ]; then
+    echo "error getting vsphere project from Boskos" 1>&2
+    rm -f "${account_env_var_file}"
+    exit "${checkout_account_status}"
+  fi
 
   # If the checkout process was a success then load the account's
   # environment variables into this process.
   # shellcheck disable=SC1090
-  [ "${checkout_account_status}" = "0" ] && . "${account_env_var_file}"
-  export BOSKOS_RESOURCE_NAME=${BOSKOS_RESOURCE_NAME}
+  . "${account_env_var_file}"
+  export BOSKOS_RESOURCE_NAME="${BOSKOS_RESOURCE_NAME}"
   # Drop absolute prefix because packer needs the relative path.
   export VSPHERE_FOLDER="$(echo "${BOSKOS_RESOURCE_FOLDER}" | sed "s@/${GOVC_DATACENTER}/vm/@@")"
   export VSPHERE_RESOURCE_POOL="$(echo "${BOSKOS_RESOURCE_POOL}" | sed "s@/${GOVC_DATACENTER}/host/${GOVC_CLUSTER}/Resources/@@")"
@@ -124,11 +130,6 @@ if [ -n "${BOSKOS_HOST:-}" ]; then
   # Always remove the account environment variable file. It contains
   # sensitive information.
   rm -f "${account_env_var_file}"
-
-  if [ ! "${checkout_account_status}" = "0" ]; then
-    echo "error getting vsphere project from Boskos" 1>&2
-    exit "${checkout_account_status}"
-  fi
 
   # Run the heartbeat to tell boskos periodically that we are still
   # using the checked out account.
@@ -166,21 +167,25 @@ cat packer/ova/packer-node.json | jq  'del(.builders[] | select( .name == "vsphe
 cat packer/ova/packer-node.json | jq  'del(.builders[] | select( .name == "vsphere-clone" ).export)' > packer/ova/packer-node.json.tmp && mv packer/ova/packer-node.json.tmp packer/ova/packer-node.json
 cat packer/ova/packer-node.json | jq  'del(."post-processors"[])' > packer/ova/packer-node.json.tmp && mv packer/ova/packer-node.json.tmp packer/ova/packer-node.json
 
-# install deps and build all images
+# Install shared prerequisites before starting parallel image builds. The
+# individual Make targets depend on these phony targets as well, but rerunning
+# set-ssh-password concurrently rewrites shared Packer/user-data files and can
+# make Packer use credentials that no longer match the installer data.
 make deps-ova
+make set-ssh-password
 
 declare -A PIDS
-for target in ${TARGETS[@]};
+for target in "${TARGETS[@]}";
 do
   target=${target#build-node-ova-vsphere-}
   export PACKER_VAR_FILES="ci-${target}.json scripts/ci-disable-goss-inspect.json"
-cat << EOF > ci-${target}.json
+cat << EOF > "ci-${target}.json"
 {
 "build_version": "capv-ci-${target}-${TIMESTAMP}"
 }
 EOF
   export PACKER_LOG=1
-  make build-node-ova-vsphere-${target} > ${ARTIFACTS}/${target}.log 2>&1 &
+  make -o deps-ova -o set-ssh-password "build-node-ova-vsphere-${target}" > "${ARTIFACTS}/${target}.log" 2>&1 &
   PIDS["${target}"]=$!
 done
 
@@ -188,8 +193,7 @@ done
 set +o errexit
 exit_err=false
 for target in "${!PIDS[@]}"; do
-  wait "${PIDS[$target]}"
-  if [[ $? -ne 0 ]]; then
+  if ! wait "${PIDS[$target]}"; then
     exit_err=true
     echo "${target}: FAILED. See logs in the artifacts folder."
   else
